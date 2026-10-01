@@ -1,0 +1,99 @@
+# Reusable workflow implementing the `/signoff [<sha>]` and
+# `/rebase-signoff [<sha>]` pull request commands. The logic is in
+# pr-signoff/pr-signoff.sh, which also has the security notes; see the
+# "pr-signoff" section of README.md for how a repository installs this.
+name: PR signoff command
+
+on:
+  workflow_call:
+    inputs:
+      app-client-id:
+        description: >-
+          Client ID (or app ID) of a GitHub App installed on the repository
+          with contents and pull-requests write access. Its token is used so
+          that the rewritten branch triggers CI again, and it is required for
+          fork PRs. Without it the job falls back to the caller's
+          GITHUB_TOKEN, whose pushes don't trigger workflows and can't reach
+          forks.
+        type: string
+        default: ''
+      workflows-permission:
+        description: >-
+          Also request the App's workflows permission, needed to push PRs
+          that change .github/workflows. The App must have it.
+        type: boolean
+        default: false
+    secrets:
+      app-private-key:
+        description: Private key of that GitHub App.
+        required: false
+
+jobs:
+  signoff:
+    # Callers should filter on the comment prefix themselves (see README), so
+    # unrelated comments never get this far; this is defense in depth.
+    if: github.event_name == 'issue_comment' && github.event.issue.pull_request
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # Used only without an App, for same-repository PRs; the caller grants it.
+    permissions:
+      contents: write
+      pull-requests: write
+    # One command per PR at a time. Don't cancel: a queued command then sees
+    # the branch the first one pushed, and its SHA check refuses it.
+    concurrency:
+      group: pr-signoff-${{ github.repository }}-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    env:
+      HAVE_APP: ${{ inputs.app-client-id != '' && secrets.app-private-key != '' }}
+    steps:
+      - name: Generate App token
+        id: app-token
+        if: env.HAVE_APP == 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ inputs.app-client-id }}
+          private-key: ${{ secrets.app-private-key }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-workflows: ${{ inputs.workflows-permission && 'write' || '' }}
+
+      # The script, from the same commit of bootc-dev/actions as this
+      # workflow (which the caller pins). Nothing from the PR is checked out.
+      - name: Check out pr-signoff
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .pr-signoff
+          sparse-checkout: pr-signoff
+          persist-credentials: false
+
+      - name: Run command
+        id: run
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          COMMENT_CREATED_AT: ${{ github.event.comment.created_at }}
+          COMMENTER: ${{ github.event.comment.user.login }}
+          COMMENTER_TYPE: ${{ github.event.comment.user.type }}
+          SERVER_URL: ${{ github.server_url }}
+        run: .pr-signoff/pr-signoff/pr-signoff.sh
+
+      - name: Report failure
+        if: failure() && steps.run.outputs.replied != 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          gh api -X POST "repos/$REPO/issues/comments/$COMMENT_ID/reactions" -f content=confused > /dev/null || true
+          gh api -X POST "repos/$REPO/issues/$PR_NUMBER/comments" \
+            -f body=":x: The signoff command failed unexpectedly; see the [workflow run]($RUN_URL)." > /dev/null

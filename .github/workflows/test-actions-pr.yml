@@ -8,6 +8,16 @@ permissions:
   contents: read
 
 jobs:
+  test-pr-signoff:
+    name: Test pr-signoff
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Run offline tests
+        run: pr-signoff/test.sh
+
   test-bootc-ubuntu-setup:
     name: Test bootc-ubuntu-setup
     runs-on: ubuntu-26.04
