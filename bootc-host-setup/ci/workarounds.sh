@@ -99,8 +99,36 @@ EOF
   printf 'LIBVIRT_DEFAULT_URI=qemu:///session\n' >> "$GITHUB_ENV"
 }
 
+# The libvirt client auto-spawns the qemu:///session daemon with --timeout=120.
+# When that daemon exits on idle it removes its socket before it releases its
+# pidfile, and a client connecting in between fails with "Failed to connect
+# socket to '.../libvirt-sock': No such file or directory"
+# (https://github.com/bootc-dev/bootc/issues/1843).  Keep one daemon for the
+# whole job instead: connecting starts it, or finds one already running, and
+# virt-admin then turns off its idle timeout.  This runs last so the daemon
+# sees the final QEMU and /dev/kvm permissions when it probes capabilities;
+# later steps get this daemon, with this step's environment.  Failing here
+# only brings the race back, so it is a warning.
+keep_ubuntu_libvirt_session() {
+  [ "$libvirt" = true ] || return 0
+  local daemon output errors=""
+  virsh -c qemu:///session uri
+  # Ubuntu's client spawns the monolithic libvirtd; virtqemud covers a switch
+  # to the modular daemons.
+  for daemon in libvirtd virtqemud; do
+    if output=$(virt-admin -q -c "${daemon}:///session" daemon-timeout --timeout 0 2>&1); then
+      printf 'Turned off the idle timeout of the %s session daemon:\n' "$daemon"
+      pgrep -a -u "$(id -u)" -x "$daemon"
+      return 0
+    fi
+    errors+="${daemon}: ${output}"$'\n'
+  done
+  printf '::warning::Could not turn off the idle timeout of the libvirt session daemon:\n%s' "$errors" >&2
+  return 0
+}
+
 case "$ID" in
-  ubuntu) setup_ubuntu_kvm; setup_ubuntu_qemu; setup_ubuntu_apparmor ;;
+  ubuntu) setup_ubuntu_kvm; setup_ubuntu_qemu; setup_ubuntu_apparmor; keep_ubuntu_libvirt_session ;;
   rhel) setup_rhel_libvirt ;;
   *) printf 'Unsupported host ID: %s\n' "$ID" >&2; exit 1 ;;
 esac

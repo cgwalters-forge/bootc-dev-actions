@@ -42,6 +42,16 @@ jobs:
         with:
           libvirt: true
 
+      - name: Record the libvirt session daemon
+        id: libvirt
+        shell: bash
+        run: |
+          set -euo pipefail
+          pid=$(pgrep -u "$(id -u)" -x 'libvirtd|virtqemud')
+          test "$(wc -l <<<"$pid")" -eq 1
+          ps -o pid=,args= -p "$pid"
+          printf 'pid=%s\nrecorded=%s\n' "$pid" "$(date +%s)" >> "$GITHUB_OUTPUT"
+
       - name: Verify host QEMU and select acceleration
         id: qemu
         shell: bash
@@ -145,6 +155,28 @@ jobs:
             limit_log "$log"
           done
           exit "$main_status"
+
+      # Nothing above touched libvirt after the host setup, so a session
+      # daemon with the default idle timeout (120s) would have exited by now.
+      - name: Check that the libvirt session daemon outlives its idle timeout
+        shell: bash
+        env:
+          DAEMON_PID: ${{ steps.libvirt.outputs.pid }}
+          RECORDED: ${{ steps.libvirt.outputs.recorded }}
+        run: |
+          set -euo pipefail
+          idle_timeout=120
+          remaining=$((RECORDED + idle_timeout + 30 - $(date +%s)))
+          if [ "$remaining" -gt 0 ]; then
+            sleep "$remaining"
+          fi
+          ps -o pid=,args= -p "$DAEMON_PID"
+          if command -v bcvk >/dev/null; then
+            bcvk libvirt list
+          else
+            virsh -c qemu:///session list --all
+          fi
+          test "$(pgrep -u "$(id -u)" -x 'libvirtd|virtqemud')" = "$DAEMON_PID"
 
       - name: Upload smoke diagnostics
         if: ${{ always() && steps.qemu.outputs.full_vm_smoke == 'true' }}
