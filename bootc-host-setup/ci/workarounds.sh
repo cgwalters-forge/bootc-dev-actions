@@ -29,7 +29,7 @@ EOF
 
 setup_ubuntu_qemu() {
   [ "$libvirt" = true ] && [ "$VERSION_ID" = 24.04 ] || return 0
-  local architecture mirror qemu_package qemu_binary
+  local architecture qemu_package qemu_binary
   architecture=$(dpkg --print-architecture)
   case "$architecture" in
     amd64) qemu_package=qemu-system-x86 ;;
@@ -37,14 +37,8 @@ setup_ubuntu_qemu() {
     *) printf 'Unsupported architecture for Resolute QEMU: %s\n' "$architecture" >&2; return 1 ;;
   esac
   qemu_binary="qemu-system-$(uname -m)"
-  printf '%s\n' 'Package: *' 'Pin: release n=resolute' 'Pin-Priority: 50' | sudo tee /etc/apt/preferences.d/resolute-qemu >/dev/null
-  if [ "$architecture" = amd64 ]; then
-    [ -f /etc/apt/apt-mirrors.txt ] && mirror='mirror+file:/etc/apt/apt-mirrors.txt' || mirror='http://archive.ubuntu.com/ubuntu'
-  else
-    mirror='http://ports.ubuntu.com/ubuntu-ports'
-  fi
-  printf 'deb %s resolute main universe\n' "$mirror" | sudo tee /etc/apt/sources.list.d/resolute-qemu.list >/dev/null
-  timeout --foreground --signal=TERM --kill-after=30s 5m sudo apt-get update
+  # install-deps.sh set up the resolute source and its low-priority pin for
+  # the container stack.
   timeout --foreground --signal=TERM --kill-after=30s 5m sudo apt-get -t resolute install -y --no-install-recommends "$qemu_package" qemu-system-common qemu-system-data qemu-utils ipxe-qemu
   "$qemu_binary" --version
 }

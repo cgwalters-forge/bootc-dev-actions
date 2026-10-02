@@ -1,5 +1,19 @@
-# Ubuntu 24.04 takes these from the temporary Plucky source.
+# Ubuntu 24.04 takes the container stack from resolute (26.04), the same
+# series 26.04 runners install natively, since noble's podman is too old
+# (no heredoc support, manifest bugs).  Plucky's (25.04) podman and buildah
+# are built with go1.24.1, which intermittently segfaults on thread exit on
+# the runners' 6.11+ kernels (https://github.com/golang/go/issues/73141,
+# fixed in go1.24.3); a podman build RUN step then fails with exit status 139.
 crun
 buildah
 podman
 skopeo
+# Listed explicitly because podman's dependencies on them are already
+# satisfied by noble's much older versions.
+conmon
+netavark
+aardvark-dns
+# Recommends are not installed; these are the ones worth having: the
+# default rootless network backend, and podman run --init.
+passt
+catatonit
