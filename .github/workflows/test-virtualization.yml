@@ -42,6 +42,21 @@ jobs:
         with:
           libvirt: true
 
+      # A guest may boot even with the old emulator, so check that the
+      # fixed QEMU (Resolute on 24.04, native on 26.04) is what got installed.
+      - name: Verify installed QEMU package version
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$(dpkg --print-architecture)" in
+            amd64) qemu_package=qemu-system-x86 ;;
+            arm64) qemu_package=qemu-system-arm ;;
+            *) printf 'Unsupported architecture\n' >&2; exit 1 ;;
+          esac
+          version=$(dpkg-query -W -f='${Version}' "$qemu_package")
+          printf '%s version: %s\n' "$qemu_package" "$version"
+          dpkg --compare-versions "$version" ge 1:10.2
+
       - name: Verify host QEMU and select acceleration
         id: qemu
         shell: bash

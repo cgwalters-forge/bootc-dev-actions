@@ -111,6 +111,10 @@ install_rhel() {
 
 main() {
   load_os_release
+  # On 24.04 the packages installed below pull in a newer libc6, which in
+  # turn upgrades base-files and with it os-release.  Record the host as it
+  # was before, for the later steps and as the action's host-os output.
+  printf 'host-os=%s-%s\n' "$ID" "$VERSION_ID" >> "$GITHUB_OUTPUT"
   case "$ID" in
     ubuntu) install_ubuntu ;;
     rhel) install_rhel ;;

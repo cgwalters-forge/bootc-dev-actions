@@ -3,8 +3,11 @@
 set -euo pipefail
 
 libvirt=${BOOTC_HOST_LIBVIRT:-false}
-# shellcheck disable=SC1091
-. /etc/os-release
+# Don't read os-release here: on 24.04 install-deps.sh has upgraded
+# base-files by now, so it no longer names the runner's release.
+host_os=${BOOTC_HOST_OS:?BOOTC_HOST_OS must be set to the host-os output of install-deps.sh}
+ID=${host_os%%-*}
+VERSION_ID=${host_os#*-}
 
 setup_ubuntu_kvm() {
   [ "$libvirt" = true ] && [ -c /dev/kvm ] || return 0
