@@ -9,23 +9,15 @@ permissions:
 
 jobs:
   test-bootc-host-setup:
-    name: Test bootc-host-setup@main
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Run bootc-host-setup
-        uses: bootc-dev/actions/bootc-host-setup@main
-
-      - name: Verify setup
-        run: |
-          just --version
-          test -n "$ARCH"
-
-      - name: Verify basic requirements
-        uses: bootc-dev/actions/.github/actions/verify-basic-requirements@main
-
-  test-bootc-host-setup-2604:
-    name: Test bootc-host-setup@main (26.04)
-    runs-on: ubuntu-26.04
+    name: Test bootc-host-setup@main (${{ matrix.runner }})
+    # See test-actions-pr.yml for why this is a matrix.
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - ubuntu-24.04
+          - ubuntu-26.04
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Run bootc-host-setup
         uses: bootc-dev/actions/bootc-host-setup@main

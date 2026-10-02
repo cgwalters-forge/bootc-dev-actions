@@ -5,10 +5,19 @@ inputs:
     description: 'Install libvirt and virtualization stack'
     required: false
     default: 'false'
+outputs:
+  host-os:
+    description: >-
+      The runner's OS as ID-VERSION_ID from os-release (e.g. ubuntu-24.04),
+      read before this action installs anything. On 24.04 the packages
+      installed here upgrade base-files, so os-release reports a newer
+      release afterwards; branch on this instead.
+    value: ${{ steps.deps.outputs.host-os }}
 runs:
   using: 'composite'
   steps:
     - name: Install host dependencies
+      id: deps
       shell: bash
       env:
         BOOTC_HOST_LIBVIRT: ${{ inputs.libvirt }}
@@ -17,6 +26,7 @@ runs:
       shell: bash
       env:
         BOOTC_HOST_LIBVIRT: ${{ inputs.libvirt }}
+        BOOTC_HOST_OS: ${{ steps.deps.outputs.host-os }}
       run: bash "${GITHUB_ACTION_PATH}/ci/workarounds.sh"
     - name: Test host environment
       shell: bash

@@ -8,8 +8,32 @@ runs:
       run: |
         set -euo pipefail
         podman --version
+        # Go 1.24.0-1.24.2 binaries intermittently segfault on thread exit
+        # on kernels with vDSO getrandom (6.11+), which surfaces as exit
+        # status 139 from podman build:
+        # https://github.com/golang/go/issues/73141
+        check_go() {
+          echo "$1 built with $2"
+          case "$2" in
+            go1.24.[0-2])
+              echo "error: $1 is built with an affected Go (golang/go#73141)" >&2
+              exit 1
+              ;;
+          esac
+        }
+        # Assign first so that set -e catches a failing version query.
+        go_version=$(podman version --format '{{.Client.GoVersion}}')
+        check_go podman "${go_version}"
+        if command -v buildah >/dev/null; then
+          go_version=$(buildah version --json | jq -er .goVersion)
+          check_go buildah "${go_version}"
+        fi
         result="$(podman run --rm docker.io/library/alpine:latest echo podman-ok)"
         test "${result}" = "podman-ok"
+        # Rootful podman uses a different network stack (netavark on the
+        # bridge network rather than pasta), so check that path too.
+        result="$(sudo podman run --rm docker.io/library/alpine:latest echo podman-rootful-ok)"
+        test "${result}" = "podman-rootful-ok"
 
     - name: Verify default Rust toolchain works
       shell: bash
