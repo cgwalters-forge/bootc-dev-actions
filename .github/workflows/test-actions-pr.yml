@@ -9,37 +9,34 @@ permissions:
 
 jobs:
   test-bootc-host-setup:
-    name: Test bootc-host-setup
-    runs-on: ubuntu-24.04
+    name: Test bootc-host-setup (${{ matrix.runner }})
+    # A matrix rather than one job per release: renovate bumps literal
+    # runs-on values, which once left both jobs on 26.04 and the 24.04
+    # package setup untested.
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - ubuntu-24.04
+          - ubuntu-26.04
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
       - name: Run bootc-host-setup
+        id: setup
         uses: ./bootc-host-setup
 
       - name: Verify setup
+        env:
+          HOST_OS: ${{ steps.setup.outputs.host-os }}
+          RUNNER_LABEL: ${{ matrix.runner }}
         run: |
           just --version
           test -n "$ARCH"
-
-      - name: Verify basic requirements
-        uses: ./.github/actions/verify-basic-requirements
-
-  test-bootc-host-setup-2604:
-    name: Test bootc-host-setup (26.04)
-    runs-on: ubuntu-26.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Run bootc-host-setup
-        uses: ./bootc-host-setup
-
-      - name: Verify setup
-        run: |
-          just --version
-          test -n "$ARCH"
+          # The runner labels happen to match ID-VERSION_ID.
+          test "$HOST_OS" = "$RUNNER_LABEL"
 
       - name: Verify basic requirements
         uses: ./.github/actions/verify-basic-requirements
@@ -59,7 +56,10 @@ jobs:
           result="$(podman run --rm localhost/heredoc-test:latest cat /heredoc-test.txt)"
           test "${result}" = "heredoc works"
 
+      # bwrap is not confined by the bwrap-userns-restrict profile on the
+      # 24.04 runners, so there is no transition to check there.
       - name: Verify bwrap AppArmor transition
+        if: matrix.runner == 'ubuntu-26.04'
         shell: bash
         run: |
           set -euo pipefail
@@ -84,8 +84,13 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - uses: ./bootc-ubuntu-setup
-      - run: test -n "$ARCH"
+      - id: setup
+        uses: ./bootc-ubuntu-setup
+      - env:
+          HOST_OS: ${{ steps.setup.outputs.host-os }}
+        run: |
+          test -n "$ARCH"
+          test "$HOST_OS" = ubuntu-24.04
 
   test-bootc-host-setup-rhel10:
     name: Test bootc-host-setup (RHEL 10)
