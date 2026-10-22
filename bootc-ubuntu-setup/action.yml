@@ -108,7 +108,39 @@ runs:
         # renovate: datasource=github-releases depName=bootc-dev/bcvk
         export BCVK_VERSION=0.19.0
         # see https://github.com/bootc-dev/bcvk/issues/176
-        /bin/time -f '%E %C' sudo apt install -y libkrb5-dev pkg-config libvirt-dev genisoimage qemu-utils qemu-kvm virtiofsd libvirt-daemon-system python3-virt-firmware
+        /bin/time -f '%E %C' sudo apt install -y curl git gcc make libkrb5-dev pkg-config libvirt-dev genisoimage qemu-utils qemu-kvm virtiofsd libvirt-daemon-system python3-virt-firmware \
+          libglib2.0-dev libpixman-1-dev libslirp-dev ninja-build python3-venv libfdt-dev \
+          zlib1g-dev libcap-ng-dev libattr1-dev libseccomp-dev liburing-dev libaio-dev \
+          libnuma-dev libfuse3-dev libgnutls28-dev libcap-dev bzip2 xz-utils
+        case "$(dpkg --print-architecture)" in
+          amd64) qemu_pkg=qemu-system-x86 ;;
+          arm64) qemu_pkg=qemu-system-arm ;;
+          *) echo "Unsupported QEMU host architecture" >&2; exit 1 ;;
+        esac
+        qemu_version=$(dpkg-query -W -f='${Version}' "${qemu_pkg}")
+        test "${qemu_version}" = '1:9.2.1+ds-1ubuntu5' || {
+          echo "Unexpected ${qemu_pkg} version ${qemu_version}; expected the known Plucky 9.2.1 package" >&2
+          exit 1
+        }
+        echo "QEMU_TOOLCHAIN_FINGERPRINT=$(gcc -dumpfullversion -dumpmachine)" >> "$GITHUB_ENV"
+    - name: Cache patched native QEMU
+      if: ${{ inputs.libvirt == 'true' }}
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/bootc-qemu
+        key: ubuntu-24.04-${{ runner.arch }}-${{ env.QEMU_TOOLCHAIN_FINGERPRINT }}-qemu-9.2.1-cac3fb4414778eab741a5e58ca0a30f1edc9528a-6da6ac4782d3e643abf94c23b39e8cd18a538ad12e83bbd083ed5adc033f467d-config-native-system-kvm-slirp-nomodules-prefix-usr-v3
+    - name: Build and select patched native QEMU
+      if: ${{ inputs.libvirt == 'true' }}
+      shell: bash
+      run: |
+        set -xeuo pipefail
+        export BCVK_VERSION=0.19.0
+        # Ubuntu 24.04 currently gets QEMU 9.2.1 from the temporary Plucky source
+        # above.  Build only its native system binary with the upstream vhost-user
+        # race fix. Install it over the package binary because stock bcvk 0.19
+        # does not receive QEMU_BIN from this composite action's environment.
+        bash "${GITHUB_ACTION_PATH}/build-qemu.sh" --test-architecture-mapping
+        /bin/time -f '%E %C' bash "${GITHUB_ACTION_PATH}/build-qemu.sh"
         # Something in the stack is overriding this, but we want session right now for bcvk
         echo LIBVIRT_DEFAULT_URI=qemu:///session >> $GITHUB_ENV
         td=$(mktemp -d)

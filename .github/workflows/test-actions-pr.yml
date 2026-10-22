@@ -130,3 +130,54 @@ jobs:
           test "${LOCAL_IMAGE}" = "localhost/my-custom-image:latest"
           result="$(podman run --rm "${LOCAL_IMAGE}" cat /custom.txt)"
           test "${result}" = "custom"
+
+  test-bootc-ubuntu-setup-libvirt-qemu:
+    name: Test bootc-ubuntu-setup patched QEMU (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            qemu: qemu-system-x86_64
+            machine: q35
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            qemu: qemu-system-aarch64
+            machine: virt
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Run bootc-ubuntu-setup with libvirt
+        uses: ./bootc-ubuntu-setup
+        with:
+          libvirt: 'true'
+
+      - name: Verify selected QEMU
+        shell: bash
+        run: |
+          set -euo pipefail
+          qemu=/usr/bin/${{ matrix.qemu }}
+          test -x "${qemu}"
+          sha256sum "${qemu}"
+          version_line=
+          while IFS= read -r line; do version_line="${line}"; break; done < <("${qemu}" --version)
+          test "${version_line}" = 'QEMU emulator version 9.2.1'
+          "${qemu}" -machine help | grep -q '^${{ matrix.machine }} '
+          "${qemu}" -device vhost-user-fs-pci,help >/dev/null
+          smoke_dir=$(mktemp -d)
+          timeout 10 "${qemu}" -machine none -nodefaults -display none -S \
+            -netdev user,id=net0 \
+            -qmp "unix:${smoke_dir}/qmp.sock,server=on,wait=off" >/dev/null 2>&1 &
+          smoke_pid=$!
+          sleep 1
+          kill -0 "${smoke_pid}"
+          kill "${smoke_pid}"
+          set +e
+          wait "${smoke_pid}"
+          smoke_status=$?
+          set -e
+          rm -rf "${smoke_dir}"
+          test "${smoke_status}" -eq 0 -o "${smoke_status}" -eq 143

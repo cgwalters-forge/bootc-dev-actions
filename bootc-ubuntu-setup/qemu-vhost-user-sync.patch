@@ -1,0 +1,31 @@
+diff --git a/hw/virtio/vhost-user.c b/hw/virtio/vhost-user.c
+--- a/hw/virtio/vhost-user.c
++++ b/hw/virtio/vhost-user.c
+@@ -1331,0 +1332 @@ static int vhost_set_vring_file(struct vhost_dev *dev,
++    int ret;
+@@ -1333,0 +1335,2 @@ static int vhost_set_vring_file(struct vhost_dev *dev,
++    bool reply_supported = virtio_has_feature(dev->protocol_features,
++                                              VHOST_USER_PROTOCOL_F_REPLY_ACK);
+@@ -1340,0 +1344,4 @@ static int vhost_set_vring_file(struct vhost_dev *dev,
++    if (reply_supported) {
++        msg.hdr.flags |= VHOST_USER_NEED_REPLY_MASK;
++    }
++
+@@ -1347 +1354,16 @@ static int vhost_set_vring_file(struct vhost_dev *dev,
+-    return vhost_user_write(dev, &msg, fds, fd_num);
++    ret = vhost_user_write(dev, &msg, fds, fd_num);
++    if (ret < 0) {
++        return ret;
++    }
++
++    if (reply_supported) {
++        /*
++         * wait for the back-end's confirmation that the new FD is active,
++         * otherwise guest_notifier_mask() could check for pending interrupts
++         * while the back-end is still using the masked event FD, losing
++         * interrupts that occur before the back-end installs the FD
++         */
++        return process_message_reply(dev, &msg);
++    }
++
++    return 0;
