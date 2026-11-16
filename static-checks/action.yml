@@ -1,0 +1,50 @@
+# Static repository hygiene checks
+#
+# Runs a table of named, offline checks (see CHECKS in static-checks.js)
+# over a checked-out tree. Skipping a check requires a reason in the
+# tree's .github/static-checks.toml; see README.md.
+#
+# Testing locally (Linux x86_64):
+#   ASKALONO=/path/to/askalono node test/static-checks.js
+
+name: 'Static checks'
+description: 'Check repository hygiene (e.g. a recognized LICENSE) over a checked-out tree'
+inputs:
+  checks:
+    description: 'Comma-separated checks to run, or "all"'
+    required: false
+    default: 'all'
+  skip:
+    description: 'Comma-separated checks to skip; each needs a reason in .github/static-checks.toml'
+    required: false
+    default: ''
+  path:
+    description: 'Root of the tree to check'
+    required: false
+    default: '.'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install askalono
+      shell: bash
+      env:
+        ASKALONO_VERSION: '0.5.0'
+        ASKALONO_SHA256: '8a007355b700137b48e7e39aab5d083acb9a0926f20c064ab4476b1624390e52'
+        DIR: ${{ runner.temp }}/askalono
+      run: |
+        set -euo pipefail
+        [ "${RUNNER_OS}-${RUNNER_ARCH}" = Linux-X64 ] || { echo "::error::static-checks needs a Linux X64 runner"; exit 1; }
+        mkdir -p "${DIR}"
+        curl -fsSLo "${DIR}/askalono.zip" "https://github.com/jpeddicord/askalono/releases/download/${ASKALONO_VERSION}/askalono-Linux.zip"
+        echo "${ASKALONO_SHA256}  ${DIR}/askalono.zip" | sha256sum -c --quiet
+        unzip -oq "${DIR}/askalono.zip" askalono -d "${DIR}"
+
+    - name: Run static checks
+      shell: bash
+      env:
+        ASKALONO: ${{ runner.temp }}/askalono/askalono
+        INPUT_CHECKS: ${{ inputs.checks }}
+        INPUT_SKIP: ${{ inputs.skip }}
+        TREE: ${{ inputs.path }}
+      run: node "${GITHUB_ACTION_PATH}/static-checks.js" "${TREE}"
